@@ -82,6 +82,11 @@ public final class DynamicNotch<Expanded, CompactLeading, CompactTrailing>: Obse
     @Published private(set) var state: DynamicNotchState = .hidden
     @Published private(set) var notchSize: CGSize = .zero
     @Published private(set) var menubarHeight: CGFloat = 0
+
+    /// The notch frame the window was last initialized for, so a
+    /// screen-parameters notification that did not move the notch (Dock
+    /// changes, Space transitions) does not tear the window down mid-display.
+    private var lastInitializedNotchFrame: NSRect?
     @Published public private(set) var isHovering: Bool = false
 
     private var closePanelTask: Task<(), Never>? // Used to close the panel after hiding completes
@@ -146,7 +151,18 @@ public final class DynamicNotch<Expanded, CompactLeading, CompactTrailing>: Obse
             let sequence = NotificationCenter.default.notifications(named: NSApplication.didChangeScreenParametersNotification)
             for await _ in sequence.map(\.name) {
                 if let screen = NSScreen.screens.first {
-                    initializeWindow(screen: screen)
+                    // This notification also fires for changes that do not move
+                    // the notch at all — a Dock size change (a Continuity or
+                    // Handoff icon appearing), a Space transition. Recreating
+                    // the window then rebuilds the visible pill mid-display,
+                    // briefly at whatever size the mid-transition screen
+                    // metrics report. Only reinitialize when the notch frame
+                    // actually changed (the frame encodes both size and
+                    // position, so a real display change still reinitializes).
+                    let newNotchFrame = screen.notchFrameWithMenubarAsBackup
+                    if newNotchFrame != lastInitializedNotchFrame {
+                        initializeWindow(screen: screen)
+                    }
                 }
             }
         }
@@ -351,7 +367,9 @@ private extension DynamicNotch {
         // so that we don't have a duplicate window
         deinitializeWindow()
 
-        notchSize = screen.notchFrameWithMenubarAsBackup.size
+        let currentNotchFrame = screen.notchFrameWithMenubarAsBackup
+        lastInitializedNotchFrame = currentNotchFrame
+        notchSize = currentNotchFrame.size
         menubarHeight = screen.menubarHeight
 
         let style = effectiveStyle(for: screen)

@@ -44,7 +44,18 @@ extension NSScreen {
     }
 
     var menubarHeight: CGFloat {
-        frame.maxY - visibleFrame.maxY
+        // `visibleFrame` transiently reports no menu bar (or a wrong value)
+        // while the system is mid-transition — a Dock size change (e.g. a
+        // Continuity/Handoff icon appearing), a fullscreen Space switch. The
+        // screen-parameters notification fires during exactly those moments,
+        // so an unclamped read renders the fake notch at a visibly wrong
+        // height. Clamp to the plausible menu bar range; 24pt is the standard
+        // menu bar height on non-notched Macs.
+        let measuredMenubarHeight = frame.maxY - visibleFrame.maxY
+        guard measuredMenubarHeight >= 20, measuredMenubarHeight <= 44 else {
+            return 24
+        }
+        return measuredMenubarHeight
     }
 
     var notchFrameWithMenubarAsBackup: NSRect {
